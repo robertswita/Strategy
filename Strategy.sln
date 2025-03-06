@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.11.35327.3
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Strategy", "Strategy\Strategy.csproj", "{2EEC084D-68CC-4AA8-94F2-04086C67138E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Geometry", "..\..\..\_Moje Dane\_Lectures\Biblioteki i silniki graficzne\_2025lato\Grupa 2\Geometry\Geometry.csproj", "{135B8550-DC34-4B30-A31E-DAA7FD2A0840}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2EEC084D-68CC-4AA8-94F2-04086C67138E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2EEC084D-68CC-4AA8-94F2-04086C67138E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2EEC084D-68CC-4AA8-94F2-04086C67138E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2EEC084D-68CC-4AA8-94F2-04086C67138E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{135B8550-DC34-4B30-A31E-DAA7FD2A0840}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{135B8550-DC34-4B30-A31E-DAA7FD2A0840}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{135B8550-DC34-4B30-A31E-DAA7FD2A0840}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{135B8550-DC34-4B30-A31E-DAA7FD2A0840}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
