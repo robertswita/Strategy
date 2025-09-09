@@ -1,30 +1,82 @@
 ﻿using Common;
 using System;
 using System.Collections.Generic;
-using System.Data.Common;
 using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
-using System.Linq;
 using System.Numerics;
-using System.Text;
 using System.Windows.Forms;
 
 namespace Strategy
 {
-    internal class TDiabloMap : TMap
+    class TDiabloMap : TMap
     {
-        [Flags]
-        enum TMaterial
+        class TDiabloTile: TTile
         {
-            Other, Water, WoodObject, InsideStone, OutsideStone, Dirt, Sand, Wood, Lava, Unknown, Snow
-        }
-        public class TDiabloTile : TTile
-        {
-            public int GridX, GridY;
             public bool HasRleFormat;
             public int Size;
-            public int FileOffset;
+            public void ReadHeader(BinaryReader reader)
+            {
+                X = reader.ReadInt16();
+                Y = reader.ReadInt16();
+                var zeros = reader.ReadInt16();
+                var gridX = reader.ReadByte();
+                var gridY = reader.ReadByte();
+                HasRleFormat = reader.ReadInt16() != 1;
+                Size = reader.ReadInt32();
+                zeros = reader.ReadInt16();
+                var headerSize = reader.ReadInt32();
+            }
+            public override void ReadImage(BinaryReader reader)
+            {
+                var pixels = reader.ReadBytes(Size);
+                Image = HasRleFormat ? DecodeRle(pixels) : DecodeIsometric(pixels);
+            }
+            Bitmap DecodeIsometric(byte[] pixels)
+            {
+                int pos = 0;
+                var pixmap = new TPixmap(TCell.Width, TCell.Height - 1);
+                for (int y = 0; y < pixmap.Height; y++)
+                {
+                    var n = y < pixmap.Height / 2 ? y : pixmap.Height - 1 - y;
+                    var r = 2 + 2 * n;
+                    for (int x = pixmap.Width / 2 - r; x < pixmap.Width / 2 + r; x++)
+                    {
+                        pixmap[x, y] = Palette[pixels[pos]]; pos++;
+                    }
+                }
+                return pixmap.Image;
+            }
+            Bitmap DecodeRle(byte[] pixels)
+            {
+                int pos = 0;
+                var pixmap = new TPixmap(TCell.Width, TCell.Width);
+                for (int y = 0; y < pixmap.Height; y++)
+                {
+                    if (pos >= pixels.Length) break;
+                    var segBegin = 0;
+                    var segEnd = 0;
+                    do
+                    {
+                        segBegin = segEnd;
+                        segBegin += pixels[pos]; pos++;
+                        segEnd = segBegin;
+                        segEnd += pixels[pos]; pos++;
+                        for (int x = segBegin; x < segEnd; x++)
+                        {
+                            pixmap[x, y] = Palette[pixels[pos]]; pos++;
+                        }
+                    } while (segEnd > segBegin);
+                }
+                return pixmap.Image;
+            }
+        }
+
+        [Flags] enum TMaterial { Other, Water, WoodObject, InsideStone, OutsideStone, Dirt, Sand, Wood, Lava, Unknown, Snow }
+        enum TWallType { 
+            Floor, LeftRight, TopBottom, LeftTopCorner_Top, LeftTopCorner_Left, 
+            RightTopCorner, LeftBottomCorner, RightBottomCorner, LeftRightDoor, TopBottomDoor,
+            Special1, Special2, Special3, Shadow, ShadowObject,
+            Roof, LowerWall
         }
         class TDiabloBlockTile : TBlockTile
         {
@@ -33,36 +85,63 @@ namespace Strategy
             public TMaterial Material;
             public int Width;
             public int Height;
-            public int Type; // Orientation
+            public TWallType Type; // Orientation
             public int Style; // MainIndex
             public int Seq; // SubIndex
             //public int Sequence;
             public int Rarity;
             public int Unk;
             public byte[] TilesFlags;
-            public int BlockHeaderPointer;
-            public int BlockHeaderSize;
             public bool Hidden;
-            public int ID { get { return Type << 26 | Style << 20 | Seq << 8; } }
+            public void ReadHeader(BinaryReader reader)
+            {
+                Direction = reader.ReadInt32();
+                RoofHeight = reader.ReadInt16();
+                Material = (TMaterial)reader.ReadInt16();
+                Height = reader.ReadInt32();
+                Width = reader.ReadInt32();
+                var zeros = reader.ReadBytes(4);
+                Type = (TWallType)reader.ReadInt32();
+                Style = reader.ReadInt32();
+                Seq = reader.ReadInt32();
+                Rarity = reader.ReadInt32();
+                Unk = reader.ReadInt32();
+                TilesFlags = reader.ReadBytes(25);
+                zeros = reader.ReadBytes(7);
+                int headerFilePos = reader.ReadInt32();
+                int headerSize = reader.ReadInt32();
+                var tileCount = reader.ReadInt32();
+                Tiles.Capacity = tileCount;
+                zeros = reader.ReadBytes(12);
+            }
+            public void ReadTiles(BinaryReader reader)
+            {
+                for (int i = 0; i < Tiles.Capacity; i++)
+                {
+                    var tile = new TDiabloTile();
+                    tile.ReadHeader(reader);
+                    Tiles.Add(tile);
+                }
+                foreach (var tile in Tiles)
+                    ((TDiabloTile)tile).ReadImage(reader);
+            }
         }
 
-        static Color[] Palette;
+        static int[] Palette;
         static TDiabloMap()
         {
-            Palette = new Color[256];
+            TCell.Width = 32;
+            TCell.Height = 16;
+            Palette = new int[256];
             for (int i = 0; i < 256; i++)
-                Palette[i] = Color.FromArgb(i, i, i);
+                Palette[i] = Color.FromArgb(i, i, i).ToArgb();
         }
 
         Vector2 GridOffset;
         int WorldHeight;
         int WorldWidth;
-        Dictionary<int, TDiabloBlockTile> BlockTilesHashes = new Dictionary<int, TDiabloBlockTile>();
-        public List<TTile> ReadTileSet(string filename, string ext)
+        public void ReadTileSet(string filename, string ext)
         {
-            TCell.Width = 32;
-            TCell.Height = 16;
-            var tiles = new List<TTile>();
             filename = filename.Substring(0, filename.Length - 4) + ext;
             var fStream = new FileStream(filename, FileMode.Open, FileAccess.Read);
             var reader = new BinaryReader(fStream);
@@ -71,149 +150,20 @@ namespace Strategy
             if (verMajor == 7 && verMinor == 6)
             {
                 reader.ReadBytes(260);
-                int BlockTilesCount = reader.ReadInt32();
-                int tileDataStartAdress = reader.ReadInt32();
-                reader.BaseStream.Position = tileDataStartAdress;
-                var blockTiles = DecodeBlockTiles(reader, BlockTilesCount);
-                foreach (var blockTile in blockTiles)
+                int blockTilesCount = reader.ReadInt32();
+                int filePos = reader.ReadInt32();
+                var blockTiles = new List<TDiabloBlockTile>();
+                for (int i = 0; i < blockTilesCount; i++)
                 {
-                    tiles.AddRange(ReadBlockTile(reader, blockTile));
-                    if (!BlockTilesHashes.Keys.Contains(blockTile.ID))
-                        BlockTilesHashes.Add(blockTile.ID, blockTile);
+                    var blockTile = new TDiabloBlockTile();
+                    blockTile.ReadHeader(reader);
+                    blockTiles.Add(blockTile);
+                    Game.Walls.Add(blockTile);
                 }
+                foreach (var blockTile in blockTiles)
+                    blockTile.ReadTiles(reader);
             }
             fStream.Close();
-            return tiles;
-        }
-
-        List<TDiabloBlockTile> DecodeBlockTiles(BinaryReader reader, int BlockTilesCount)
-        {
-            var blockTiles = new List<TDiabloBlockTile>();
-            for (int i = 0; i < BlockTilesCount; i++)
-            {
-                var BlockTile = new TDiabloBlockTile();
-                BlockTile.Tiles = new List<TTile>();
-                BlockTile.Direction = reader.ReadInt32();
-                BlockTile.RoofHeight = reader.ReadInt16();
-                BlockTile.Material = (TMaterial)reader.ReadInt16();
-                BlockTile.Height = reader.ReadInt32();
-                BlockTile.Width = reader.ReadInt32();
-                var zeros = reader.ReadBytes(4);
-                BlockTile.Type = reader.ReadInt32();
-                BlockTile.Style = reader.ReadInt32();
-                BlockTile.Seq = reader.ReadInt32();
-                BlockTile.Rarity = reader.ReadInt32();
-                BlockTile.Unk = reader.ReadInt32();
-                BlockTile.TilesFlags = reader.ReadBytes(25);
-                zeros = reader.ReadBytes(7);
-                BlockTile.BlockHeaderPointer = reader.ReadInt32();
-                BlockTile.BlockHeaderSize = reader.ReadInt32();
-                var tileCount = reader.ReadInt32();
-                BlockTile.Tiles.Capacity = tileCount;
-                zeros = reader.ReadBytes(12);
-                //BlockTilesHashes.Add(BlockTile.ID, BlockTile);
-                blockTiles.Add(BlockTile);
-            }
-            return blockTiles;
-        }
-
-        private List<TTile> ReadBlockTile(BinaryReader reader, TDiabloBlockTile BlockTile)
-        {
-            //var images = new List<Image>();
-            if (reader.BaseStream.Position != BlockTile.BlockHeaderPointer)
-                ;
-            for (int i = 0; i < BlockTile.Tiles.Capacity; i++)
-            {
-                var tile = new TDiabloTile();
-                //tile.BlockTile = BlockTile;
-                tile.X = reader.ReadInt16();
-                tile.Y = reader.ReadInt16();
-                reader.ReadInt16();
-                tile.GridX = reader.ReadByte();
-                tile.GridY = reader.ReadByte();
-                tile.HasRleFormat = reader.ReadInt16() != 1;
-                tile.Size = reader.ReadInt32();
-                reader.ReadInt16();
-                tile.FileOffset = reader.ReadInt32();
-                BlockTile.Tiles.Add(tile);
-            }
-            for (int i = 0; i < BlockTile.Tiles.Count; i++)
-            {
-                var tile = (TDiabloTile)BlockTile.Tiles[i];
-                if (reader.BaseStream.Position != BlockTile.BlockHeaderPointer + tile.FileOffset)
-                    ;
-                var pixels = reader.ReadBytes(tile.Size);
-                tile.Image = tile.HasRleFormat ? DecodeRle(tile, pixels) : DecodeIsometric(pixels);
-
-            }
-            return BlockTile.Tiles;
-        }
-
-        //public Bitmap DecodeIsometric(byte[] pixels)
-        //{
-        //    var blockWidth = 32;
-        //    var blockHeight = 16;
-        //    int pos = 0;
-        //    var pixmap = new TPixmap(blockWidth, blockHeight);
-        //    for (int y = 0; y < pixmap.Height; y++)
-        //    {
-        //        var n = y < pixmap.Height / 2 ? y : pixmap.Height - 1 - y;
-        //        var r = 1 + 2 * n;
-        //        for (int x = pixmap.Width / 2 - r; x < pixmap.Width / 2 + r; x++)
-        //        {
-        //            var brightness = pixels[pos]; pos++;
-        //            pixmap[x, y] = Palette[brightness].ToArgb();
-        //        }
-        //    }
-        //    return pixmap.Image;
-        //}
-
-        public Bitmap DecodeIsometric(byte[] pixels)
-        {
-            //var tile = block.Tile;
-            var blockWidth = 32;
-            var blockHeight = 15;
-
-            int pos = 0;
-            var pixmap = new TPixmap(blockWidth, blockHeight);
-            for (int y = 0; y < pixmap.Height; y++)
-            {
-                var n = y < pixmap.Height / 2 ? y : pixmap.Height - 1 - y;
-                var r = 2 + 2 * n;
-                for (int x = pixmap.Width / 2 - r; x < pixmap.Width / 2 + r; x++)
-                {
-                    var brightness = pixels[pos++];
-                    pixmap[x, y] = Palette[brightness].ToArgb();
-                }
-            }
-            return pixmap.Image;
-        }
-
-        Bitmap DecodeRle(TDiabloTile tile, byte[] pixels)
-        {
-            var blockWidth = 32;
-            var blockHeight = 32;
-            int pos = 0;
-            var pixmap = new TPixmap(blockWidth, blockHeight);
-            for (int y = 0; y < pixmap.Height; y++)
-            {
-                if (pos >= pixels.Length) break;
-                var segBegin = 0;
-                var segEnd = 0;
-                do
-                {
-                    segBegin = segEnd;
-                    segBegin += pixels[pos]; pos++;
-                    segEnd = segBegin;
-                    segEnd += pixels[pos]; pos++;
-                    for (int x = segBegin; x < segEnd; x++)
-                    {
-                        var brightness = pixels[pos]; pos++;
-                        pixmap[x, y] = Palette[brightness].ToArgb();
-                    }
-                } while (segEnd > segBegin);
-            }
-            return pixmap.Image;
         }
 
         public override Vector2 TransformGrid(float x, float y)
@@ -245,8 +195,8 @@ namespace Strategy
                         cell.Y = y;
                         cells[y, x] = cell;
                     }
-                    else
-                        cells[y, x] = Game.Cells[0, 0];
+                    //else
+                    //    cells[y, x] = Game.Cells[0, 0];
                 }
             return cells;
         }
@@ -272,8 +222,8 @@ namespace Strategy
 
         public void MapTileSet(List<TTile> tiles)
         {
-            var blockSize = 5 * TCell.Width;
-            int mapSize = (int)Math.Ceiling(Math.Sqrt(BlockTilesHashes.Count * 5)) + 1;
+            var blockSize = 10 * TCell.Width;
+            int mapSize = (int)Math.Ceiling(Math.Sqrt(Game.Walls.Count * 5)) + 1;
             Height = 5 * mapSize;
             Width = 2 * Height;
             Game.Cells = new TCell[Height, Width];
@@ -286,14 +236,12 @@ namespace Strategy
                     cell.Y = y;
                     Game.Cells[y, x] = cell;
                 }
-            Game.ColumnTiles.Clear();
-            for (int n = 0; n < BlockTilesHashes.Count; n++)
+            for (int idx = 0; idx < Game.Walls.Count; idx++)
             {
-                var BlockTile = BlockTilesHashes.ElementAt(n).Value;
-                BlockTile.X = (n % mapSize) * blockSize;
-                BlockTile.Y = n / mapSize * blockSize;
-                BlockTile.Bounds = new Rectangle(BlockTile.X, BlockTile.Y, blockSize, blockSize);
-                Game.ColumnTiles.Add(BlockTile);
+                var blockTile = Game.Walls[idx];
+                blockTile.X = (idx % mapSize) * blockSize;
+                blockTile.Y = idx / mapSize * blockSize;
+                blockTile.Bounds = new Rectangle(blockTile.X, blockTile.Y - blockSize, blockSize, blockSize);
             }
         }
 
@@ -312,23 +260,6 @@ namespace Strategy
             HasUnknownBytes2 = 18,
         }
 
-        public enum LayerStreamType
-        {
-            LayerWall1,
-            LayerWall2,
-            LayerWall3,
-            LayerWall4,
-            LayerOrientation1,
-            LayerOrientation2,
-            LayerOrientation3,
-            LayerOrientation4,
-            LayerFloor1,
-            LayerFloor2,
-            LayerShadow,
-            LayerSubstitute
-        }
-
-
         public static string ReadZString(BinaryReader reader)
         {
             var result = "";
@@ -341,95 +272,52 @@ namespace Strategy
             return result;
         }
 
-        public void LoadPalette(string filename)
+        public void ReadPalette(string filename)
         {
             var dirName = filename;
             while (dirName != null && Path.GetFileName(dirName) != "d2")
                 dirName = Path.GetDirectoryName(dirName);
             if (dirName == null) dirName = filename;
-            GamePath = Path.GetDirectoryName(dirName) + "\\";
+            GamePath = Path.GetDirectoryName(dirName);
             var actName = Path.GetDirectoryName(Path.GetDirectoryName(filename));
-            actName = Path.GetFileName(actName) + "\\";
-            var palPath = GamePath + "D2\\Data\\Global\\Palette\\" + actName + "Pal.pl2";
+            actName = Path.GetFileName(actName);
+            if (!actName.StartsWith("ACT"))
+                actName = "Units";
+            var palPath = GamePath + "\\D2\\Data\\Global\\Palette\\" + actName + "\\pal.dat";
             var fStream = new FileStream(palPath, FileMode.Open, FileAccess.Read);
             var reader = new BinaryReader(fStream);
-            Palette = new Color[256];
+            Palette = new int[256];
             for (int i = 0; i < Palette.Length; i++)
             {
-                var r = reader.ReadByte();
-                var g = reader.ReadByte();
                 var b = reader.ReadByte();
-                var a = reader.ReadByte();
-                Palette[i] = Color.FromArgb(r, g, b);
+                var g = reader.ReadByte();
+                var r = reader.ReadByte();
+                //var a = reader.ReadByte();
+                //if (r + g + b > 0) a = 255;
+                Palette[i] = Color.FromArgb(r, g, b).ToArgb();
             }
             fStream.Close();
         }
 
         int ActNo;
         int SubstitutionType;
+        TVersion Version;
         public override void ReadMap(string filename)
         {
             Cursor.Current = Cursors.WaitCursor;
             MapName = Path.GetFileNameWithoutExtension(filename);
-            LoadPalette(filename);
+            ReadPalette(filename);
+            Game.Walls.Clear();
             var fStream = new FileStream(filename, FileMode.Open, FileAccess.Read);
             var reader = new BinaryReader(fStream);
-            var version = (TVersion)reader.ReadInt32();
+            Version = (TVersion)reader.ReadInt32();
             Width = reader.ReadInt32();
             Height = reader.ReadInt32();
             Width++;
             Height++;
             WorldWidth = Width * 5;
             WorldHeight = Height * 5;
-            int diagonalSize = WorldWidth + WorldHeight;
-            var mapSize = new Vector2(diagonalSize, diagonalSize);
-            GridOffset.X = -WorldWidth;
-
-            if (version >= TVersion.HasAct)
-                ActNo = 1 + reader.ReadInt32();
-            if (version >= TVersion.HasSubtitutionLayers)
-                SubstitutionType = reader.ReadInt32();
-            if (version >= TVersion.HasFiles)
-            {
-                Game.GroundTiles = new List<TTile>();
-                int filesCount = reader.ReadInt32();
-                for (int i = 0; i < filesCount; i++)
-                {
-                    var fileName = ReadZString(reader);
-                    if (fileName.StartsWith("C:\\"))
-                        fileName = fileName.Substring(3);
-                    //string fileName = Encoding.ASCII.GetString(bytes.ToArray());
-                    fileName = GamePath + fileName;
-                    Game.GroundTiles.AddRange(ReadTileSet(fileName, ".dt1"));
-                }
-            }
-            if (version >= TVersion.HasUnknownBytes1Low && version <= TVersion.HasUnknownBytes1High)
-                reader.ReadBytes(8);
-            var layers = new List<LayerStreamType>();
-            if (version < TVersion.HasWalls)
-            {
-                layers.Add(LayerStreamType.LayerWall1);
-                layers.Add(LayerStreamType.LayerFloor1);
-                layers.Add(LayerStreamType.LayerOrientation1);
-                layers.Add(LayerStreamType.LayerSubstitute);
-                layers.Add(LayerStreamType.LayerShadow);
-            }
-            else
-            {
-                var wallsCount = reader.ReadInt32();
-                for (int i = 0; i < wallsCount; i++)
-                {
-                    layers.Add(LayerStreamType.LayerWall1 + i);
-                    layers.Add(LayerStreamType.LayerOrientation1 + i);
-                }
-                var floorsCount = version < TVersion.HasFloors ? 1 : reader.ReadInt32();
-                for (int i = 0; i < floorsCount; i++)
-                    layers.Add(LayerStreamType.LayerFloor1 + i);
-                layers.Add(LayerStreamType.LayerShadow);
-                if (SubstitutionType == 1 || SubstitutionType == 2)
-                    layers.Add(LayerStreamType.LayerSubstitute);
-            }
-
+            GridOffset.X = -WorldHeight;
             Game.Cells = new TCell[WorldHeight, WorldWidth];
             for (int y = 0; y < WorldHeight; y++)
                 for (int x = 0; x < WorldWidth; x++)
@@ -440,111 +328,205 @@ namespace Strategy
                     cell.Y = y;
                     Game.Cells[y, x] = cell;
                 }
-            LoadLayers(reader, layers);
-            //LoadObjects(reader);
+            ReadCells(reader);
+            ReadObjects(reader);
             //LoadSubstitutions(reader);
             //LoadNPCs(reader);
-
             reader.Close();
-            Height = (int)(mapSize.Y / 2);
-            Width = (int)mapSize.X;
+            Width = WorldWidth + WorldHeight;
+            Height = Width / 2;
             Game.Cells = UntransformFromHexMapping();
+            Game.Board.ScrollPos = new PointF(0.5f, 0.5f);
             Cursor.Current = Cursors.Default;
         }
 
-        public void LoadLayers(BinaryReader reader, List<LayerStreamType> layers)
+        void ReadWalls(BinaryReader reader, List<TDiabloBlockTile>[,,] blockTiles)
         {
             var typeLookup = new int[]{
                 0x00, 0x01, 0x02, 0x01, 0x02, 0x03, 0x03, 0x05, 0x05, 0x06,
                 0x06, 0x07, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
                 0x0F, 0x10, 0x11, 0x12, 0x14,};
-
-            Game.ColumnTiles.Clear();
-            var walls = new List<TDiabloBlockTile>[4];
-            for (int i = 0; i < walls.Length; i++)
-                walls[i] = new List<TDiabloBlockTile>();
-            for (int i = 0; i < layers.Count; i++)
-            {
-                var layerStreamType = layers[i];
-                var layerIndex = (int)layerStreamType - (int)LayerStreamType.LayerOrientation1;
-                var wallIdx = 0;
-                for (int y = 0; y < Height; y++)
-                    for (int x = 0; x < Width; x++)
+            var walls = new List<TDiabloBlockTile>();
+            for (int y = 0; y < Height; y++)
+                for (int x = 0; x < Width; x++)
+                {
+                    var tileInfo = reader.ReadInt32();
+                    if (tileInfo == 0) continue;
+                    var blockTile = new TDiabloBlockTile();
+                    blockTile.Seq = tileInfo >> 8 & 0x3F;
+                    blockTile.Style = tileInfo >> 20 & 0x3F;
+                    blockTile.Hidden = tileInfo < 0;
+                    //blockTile.Rarity = tileInfo & 0x3F;
+                    //blockTile.Property1 = tileInfo & 0xFF;
+                    //blockTile.Unk1 = tileInfo >> 14 & 0x3F;
+                    //blockTile.Unk2 = tileInfo >> 26 & 0x1F;
+                    walls.Add(blockTile);
+                }
+            if (Version < TVersion.HasWalls)
+                ReadFloors(reader, blockTiles);
+            var wallIdx = 0;
+            for (int y = 0; y < Height; y++)
+                for (int x = 0; x < Width; x++)
+                {
+                    var wallType = reader.ReadInt32();
+                    if (wallType == 0) continue;
+                    var wall = walls[wallIdx]; wallIdx++;
+                    if (ActNo == 0 && wallType < typeLookup.Length)
+                        wallType = typeLookup[wallType];
+                    wall.Type = (TWallType)wallType;
+                    var selection = blockTiles[wallType, wall.Style, wall.Seq];
+                    if (selection != null)
                     {
-                        //var cell = Game.Cells[5 * y, 5 * x];
-                        var tileInfo = reader.ReadInt32();
-                        if (tileInfo == 0) continue;
-                        var blockTile = new TDiabloBlockTile();
-                        blockTile.Seq = tileInfo >> 8 & 0x3F;
-                        blockTile.Style = tileInfo >> 20 & 0x3F;
-                        blockTile.Hidden = tileInfo < 0;
-                        //blockTile.Property1 = tileInfo & 0xFF;
-                        //blockTile.Unk1 = tileInfo >> 14 & 0x3F;
-                        //blockTile.Unk2 = tileInfo >> 26 & 0x1F;
-                        switch (layerStreamType)
+                        wall.Rarity = TGame.Random.Next(selection.Count);
+                        var wallTile = selection[wall.Rarity];
+                        wall.Tiles = wallTile.Tiles;
+                        var pos = TransformGrid(5 * x, 5 * y);
+                        var cell = new TCell();
+                        cell.X = (int)pos.X;
+                        cell.Y = (int)pos.Y;
+                        pos = cell.Position;
+                        wall.X = (int)(pos.X - 2 * TCell.Width);
+                        wall.Y = (int)pos.Y;
+                        if (wall.Type == TWallType.Roof)
                         {
-                            case LayerStreamType.LayerWall1:
-                            case LayerStreamType.LayerWall2:
-                            case LayerStreamType.LayerWall3:
-                            case LayerStreamType.LayerWall4:
-                                {
-                                    Game.ColumnTiles.Add(blockTile);
-                                    var wallLayerIndex = layerStreamType - LayerStreamType.LayerWall1;
-                                    walls[wallLayerIndex].Add(blockTile);
-                                    break;
-                                }
-                            case LayerStreamType.LayerOrientation1:
-                            case LayerStreamType.LayerOrientation2:
-                            case LayerStreamType.LayerOrientation3:
-                            case LayerStreamType.LayerOrientation4:
-                                {
-                                    var wallLayerIndex = layerStreamType - LayerStreamType.LayerOrientation1;
-                                    var wall = walls[wallLayerIndex][wallIdx]; wallIdx++;
-                                    wall.Type = tileInfo;
-                                    if (ActNo == 0 && wall.Type < typeLookup.Length)
-                                        wall.Type = typeLookup[wall.Type];
-                                    BlockTilesHashes.TryGetValue(wall.ID, out blockTile);
-                                    if (blockTile != null)
-                                    {
-                                        wall.Tiles = blockTile.Tiles;
-                                        var pos = TransformGrid(5 * x, 5 * y);
-                                        var cell = new TCell();
-                                        cell.X = (int)pos.X;
-                                        cell.Y = (int)pos.Y;
-                                        pos = cell.Position;
-                                        wall.X = (int)(pos.X - 2 * TCell.Width);
-                                        wall.Y = (int)(pos.Y + 5 * TCell.Height);
-                                        wall.Bounds = new Rectangle(wall.X, wall.Y, wall.Width, wall.Height);
-                                    }
-                                    break;
-                                }
-
-                            case LayerStreamType.LayerFloor1:
-                            case LayerStreamType.LayerFloor2:
-                                {
-                                    var floorIndex = layerStreamType - LayerStreamType.LayerFloor1;
-                                    BlockTilesHashes.TryGetValue(blockTile.ID, out blockTile);
-                                    if (blockTile != null)
-                                        for (int u = 0; u < 5; u++)
-                                            for (int v = 0; v < 5; v++)
-                                            {
-                                                var cellTile = Game.Cells[5 * y + u, 5 * x + v];
-                                                cellTile.GroundTile = blockTile.Tiles[(4 - u) * 5 + 4 - v];
-                                            }
-                                    break;
-                                }
-
-                            case LayerStreamType.LayerShadow:
-                                {
-                                    break;
-                                }
-
-                            case LayerStreamType.LayerSubstitute:
-                                {
-                                    break;
-                                }
+                            wall.Y -= wallTile.RoofHeight;
+                            Game.RoofTiles.Add(wall);
+                        }
+                        else
+                        {
+                            if (wall.Type < TWallType.Roof)
+                                wall.Y += 5 * TCell.Height;
+                            Game.Walls.Add(wall);
+                        }
+                        wall.Bounds = new Rectangle(wall.X, wall.Y + wallTile.Height, wallTile.Width, Math.Abs(wallTile.Height));
+                        if (wall.Type == TWallType.LeftTopCorner_Top)
+                        {
+                            var extraTile = new TDiabloBlockTile();
+                            extraTile.Type = TWallType.LeftTopCorner_Left;
+                            extraTile.Style = wall.Style;
+                            extraTile.Seq = wall.Seq;
+                            selection = blockTiles[(int)extraTile.Type, extraTile.Style, extraTile.Seq];
+                            extraTile.Tiles = selection[wall.Rarity].Tiles;
+                            extraTile.X = wall.X;
+                            extraTile.Y = wall.Y;
+                            extraTile.Bounds = wall.Bounds;
+                            Game.Walls.Add(extraTile);
                         }
                     }
+                }
+        }
+
+        void ReadFloors(BinaryReader reader, List<TDiabloBlockTile>[,,] blockTiles)
+        {
+            for (int y = 0; y < Height; y++)
+                for (int x = 0; x < Width; x++)
+                {
+                    var tileInfo = reader.ReadInt32();
+                    if (tileInfo == 0) continue;
+                    var floor = new TDiabloBlockTile();
+                    floor.Seq = tileInfo >> 8 & 0x3F;
+                    floor.Style = tileInfo >> 20 & 0x3F;
+                    floor.Hidden = tileInfo < 0;
+                    var selection = blockTiles[(int)floor.Type, floor.Style, floor.Seq];
+                    if (selection != null)
+                    {
+                        floor = selection[TGame.Random.Next(selection.Count)];
+                        for (int u = 0; u < 5; u++)
+                            for (int v = 0; v < 5; v++)
+                            {
+                                var cell = Game.Cells[5 * y + u, 5 * x + v];
+                                var tileIdx = (4 - u) * 5 + 4 - v;
+                                if (tileIdx < floor.Tiles.Count)
+                                    cell.GroundTile = floor.Tiles[tileIdx];
+                            }
+                    }
+                }
+        }
+
+        void ReadShadows(BinaryReader reader)
+        {
+            for (int y = 0; y < Height; y++)
+                for (int x = 0; x < Width; x++)
+                {
+                    var tileInfo = reader.ReadInt32();
+                    //if (tileInfo == 0) continue;
+                }
+        }
+
+        void ReadSubstitutions(BinaryReader reader)
+        {
+            for (int y = 0; y < Height; y++)
+                for (int x = 0; x < Width; x++)
+                {
+                    var tileInfo = reader.ReadInt32();
+                    //if (tileInfo == 0) continue;
+                }
+        }
+
+        void ReadCells(BinaryReader reader)
+        {
+            if (Version >= TVersion.HasAct)
+                ActNo = 1 + reader.ReadInt32();
+            if (Version >= TVersion.HasSubtitutionLayers)
+                SubstitutionType = reader.ReadInt32();
+            if (Version >= TVersion.HasFiles)
+            {
+                Game.GroundTiles = new List<TTile>();
+                int filesCount = reader.ReadInt32();
+                for (int i = 0; i < filesCount; i++)
+                {
+                    var fileName = ReadZString(reader);
+                    if (fileName.StartsWith("C:\\"))
+                        fileName = fileName.Substring(3);
+                    //string fileName = Encoding.ASCII.GetString(bytes.ToArray());
+                    fileName = GamePath + fileName;
+                    //Game.GroundTiles.AddRange(ReadTileSet(fileName, ".dt1"));
+                    ReadTileSet(fileName, ".dt1");
+                }
+            }
+            var blockTiles = new List<TDiabloBlockTile>[64, 64, 64];
+            foreach (var blockTile in Game.Walls)
+            {
+                var dbTile = (TDiabloBlockTile)blockTile;
+                if (blockTiles[(int)dbTile.Type, dbTile.Style, dbTile.Seq] == null)
+                    blockTiles[(int)dbTile.Type, dbTile.Style, dbTile.Seq] = new List<TDiabloBlockTile>();
+                blockTiles[(int)dbTile.Type, dbTile.Style, dbTile.Seq].Add(dbTile);
+            }
+            Game.Walls.Clear();
+            if (Version >= TVersion.HasUnknownBytes1Low && Version <= TVersion.HasUnknownBytes1High)
+                reader.ReadBytes(8);
+            if (Version < TVersion.HasWalls)
+            {
+                ReadWalls(reader, blockTiles);
+                ReadSubstitutions(reader);
+                ReadShadows(reader);
+            }
+            else
+            {
+                var wallsLayersCount = reader.ReadInt32();
+                var floorsLayersCount = Version < TVersion.HasFloors ? 1 : reader.ReadInt32();
+                for (int i = 0; i < wallsLayersCount; i++)
+                    ReadWalls(reader, blockTiles);
+                for (int i = 0; i < floorsLayersCount; i++)
+                    ReadFloors(reader, blockTiles);
+                ReadShadows(reader);
+                if (SubstitutionType == 1 || SubstitutionType == 2)
+                    ReadSubstitutions(reader);
+            }
+        }
+        void ReadObjects(BinaryReader reader)
+        {
+            var objCount = reader.ReadInt32();
+            for (int i = 0; i < objCount; i++)
+            {
+                var obj = new TElement();
+                obj.Type = (TElementType)reader.ReadInt32();
+                obj.Id = reader.ReadInt32();
+                obj.X = reader.ReadInt32();
+                obj.Y = reader.ReadInt32();
+                obj.EventId = reader.ReadInt32();
+                obj.Bounds = new Rectangle(obj.X, obj.Y, TCell.Width, TCell.Height);
+                //Game.Sprites.Add(obj);
             }
         }
     }

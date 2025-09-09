@@ -10,8 +10,34 @@ using System.Windows.Forms;
 
 namespace Strategy
 {
-    internal class TDispelMap: TMap
+    class TDispelMap: TMap
     {
+        class TDispelTile: TTile
+        {
+            public override void ReadImage(BinaryReader reader) 
+            { 
+                var pixels = reader.ReadBytes(TCell.Width * TCell.Height);
+                Image = DecodeIsometric(pixels);
+            }
+
+            public Bitmap DecodeIsometric(byte[] pixels)
+            {
+                int pos = 0;
+                var pixmap = new TPixmap(TCell.Width, TCell.Height);
+                for (int y = 0; y < pixmap.Height; y++)
+                {
+                    var n = y < pixmap.Height / 2 ? y : pixmap.Height - 1 - y;
+                    var r = 1 + 2 * n;
+                    for (int x = pixmap.Width / 2 - r; x < pixmap.Width / 2 + r; x++)
+                    {
+                        pixmap[x, y] = Rgb16To32(pixels[pos++], pixels[pos++]);
+                    }
+                }
+                return pixmap.Image;
+            }
+
+        }
+
         public static int ChunkSize = 25;
         public int WorldWidth;
         public int WorldHeight;
@@ -19,14 +45,14 @@ namespace Strategy
         public static Encoding Encoding = Encoding.GetEncoding(1250);
         public byte[] ReadBuffer;
 
-        int Rgb16To32(int byte0, int byte1)
+        static int Rgb16To32(int byte0, int byte1)
         {
             int color = (byte0 & 0x1F) << 3 | (byte0 & 0xE0) << 5;
             color |= (byte1 & 7) << 13 | (byte1 & 0xF8) << 16;
             if (color > 0) color |= unchecked((int)0xFF000000);
             return color;
         }
-        byte[] Rgb32To16(int color)
+        static byte[] Rgb32To16(int color)
         {
             byte[] bytes = new byte[2];
             bytes[0] = (byte)((color & 0xF8) >> 3 | (color & 0x1C00) >> 5);
@@ -39,25 +65,15 @@ namespace Strategy
             TCell.Width = 64;
             filename = filename.Substring(0, filename.Length - 4) + ext;
             var fStream = new FileStream(filename, FileMode.Open, FileAccess.Read);
-            var pixels = new byte[fStream.Length];
-            fStream.Read(pixels, 0, pixels.Length);
             var tiles = new List<TTile>();
-            int pos = -1;
-            while (pos < pixels.Length - 1)
+            var reader = new BinaryReader(fStream);
+            var idx = 0;
+            while (reader.BaseStream.Position < reader.BaseStream.Length)
             {
-                var tile = new TTile();
-                var pixmap = new TPixmap(TCell.Width, TCell.Height);                
-                for (int y = 0; y < pixmap.Height; y++)
-                {
-                    var n = y < pixmap.Height / 2 ? y : pixmap.Height - 1 - y;
-                    var r = 1 + 2 * n;
-                    for (int x = pixmap.Width / 2 - r; x < pixmap.Width / 2 + r; x++)
-                    {
-                        pixmap[x, y] = Rgb16To32(pixels[++pos], pixels[++pos]);
-                    }
-                }
-                tile.Index = pos / 2;
-                tile.Image = pixmap.Image;
+                var tile = new TDispelTile();
+                tile.ReadImage(reader);
+                tile.Index = idx;
+                idx++;
                 tiles.Add(tile);
             }
             fStream.Close();
@@ -176,10 +192,10 @@ namespace Strategy
 
         void WriteColumnBlockTiles(BinaryWriter writer)
         {
-            writer.Write(Game.ColumnTiles.Count);
-            for (int i = 0; i < Game.ColumnTiles.Count; i++)
+            writer.Write(Game.Walls.Count);
+            for (int i = 0; i < Game.Walls.Count; i++)
             {
-                var column = Game.ColumnTiles[i];
+                var column = Game.Walls[i];
                 column.Tiles = Game.BlockTiles;
                 writer.Write(1);
                 writer.Write(new byte[260]);
@@ -763,16 +779,16 @@ namespace Strategy
                     if (idx > 0 && idx < Game.BlockTiles.Count)
                     {
                         var roofTile = new TBlockTile();
-                        roofTile.Tiles = Game.BlockTiles;
                         var pos = TransformGrid(x, y);
                         var tile = Game.BlockTiles[idx];
-                        tile.X = (int)pos.X;
-                        tile.Y = (int)pos.Y;
-                        //pos = cell.Position;
-                        //roofTile.X = (int)(pos.X);
-                        //roofTile.Y = (int)(pos.Y);
+                        var cell = new TCell();
+                        cell.X = (int)pos.X;
+                        cell.Y = (int)pos.Y;
+                        pos = cell.Position;
+                        roofTile.X = (int)(pos.X);
+                        roofTile.Y = (int)(pos.Y);
                         roofTile.Tiles.Add(tile);
-                        roofTile.Bounds = new Rectangle(tile.X, tile.Y, TCell.Width, TCell.Height);
+                        roofTile.Bounds = new Rectangle(roofTile.X, roofTile.Y, TCell.Width, TCell.Height);
                         Game.RoofTiles.Add(roofTile);
                     }
                     else if (idx > 0)
@@ -783,7 +799,7 @@ namespace Strategy
         void ReadColumnBlockTiles(BinaryReader reader)
         {
             int count = reader.ReadInt32();
-            Game.ColumnTiles.Clear();
+            Game.Walls.Clear();
             for (int i = 0; i < count; i++)
             {
                 reader.ReadInt32(); // = 1
@@ -817,7 +833,7 @@ namespace Strategy
                         reader.ReadInt32(); // = 1
                         int tilesCount = reader.ReadInt32();
                         reader.ReadInt32(); // = tilesCount
-                        column.Order = Game.ColumnTiles.Count;
+                        column.Order = Game.Walls.Count;
                         column.Bounds = Rectangle.FromLTRB(left, top, right, bottom);
                         for (int m = 0; m < tilesCount; m++)
                         {
@@ -835,7 +851,7 @@ namespace Strategy
                 }
                 for (int m = 0; m < 2 * column.Tiles.Count; m++)
                     reader.ReadInt32();
-                Game.ColumnTiles.Add(column);
+                Game.Walls.Add(column);
             }
             //Game.ColumnTiles.Sort();
         }

@@ -30,7 +30,7 @@ namespace Strategy
         //public static int TileWidth = 64;
         //public static int TileHeight = 64;
         //public Size MapSize;
-        public List<TBlockTile> ColumnTiles = new List<TBlockTile>();
+        public List<TBlockTile> Walls = new List<TBlockTile>();
         public List<TSprite> AnimatedSprites = new List<TSprite>();
         public TMap Map;
         public Image MapView;
@@ -58,8 +58,9 @@ namespace Strategy
             {
                 var map = new TDiabloMap();
                 map.Game = this;
-                map.LoadPalette(filename);
-                GroundTiles = map.ReadTileSet(filename, ext);
+                map.ReadPalette(filename);
+                Walls.Clear();
+                map.ReadTileSet(filename, ext);
                 map.MapTileSet(GroundTiles);
             }
             else if (ext == ".ds1")

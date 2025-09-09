@@ -322,7 +322,7 @@ namespace Strategy
                     }
             vp = new Rectangle(vp.Left * sx, vp.Top * sy, vp.Width * sx, vp.Height * sy);
             VisibleSprites.Clear();
-            foreach (var column in Game.ColumnTiles)
+            foreach (var column in Game.Walls)
                 //if (column.IsVisibleInRect(vp))
                     VisibleSprites.Add(column);
             foreach (var sprite in Game.Sprites)
