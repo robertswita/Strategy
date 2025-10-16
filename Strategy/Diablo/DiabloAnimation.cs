@@ -14,6 +14,7 @@ namespace Strategy.Diablo
         public string Token;
         public string Mode;
         public string ClassType;
+        //public string Filename {  get { return Token + Mode + ClassType; } }
         public int Type;
         public int ColormapIdx;
         public string[] ArmorClass = new string[LayerNames.Length];
@@ -56,7 +57,12 @@ namespace Strategy.Diablo
             LayersCount = reader.ReadByte();
             FramesCount = reader.ReadByte();
             DirectionsCount = reader.ReadByte();
-            var version = reader.ReadByte(); //== 20
+            var version = reader.ReadByte();
+            if (version != 20)
+            {
+                reader.Close();
+                return;
+            }
             Flags = reader.ReadInt32();   //< Possible bitfield values : loopAnim / underlay color when hit
             Bounds = new Rectangle();
             Bounds.X = reader.ReadInt32();
@@ -66,12 +72,13 @@ namespace Strategy.Diablo
             var animRate = reader.ReadInt16(); //< Default animation rate(speed) in 8-bit fixed-point: 256 == 1.f.
             var zeros = reader.ReadInt16();
             var dirBounds = new Rectangle[DirectionsCount];
+            int layerDirCount = DirectionsCount;
             for (var i = 0; i < LayersCount; i++)
             {
                 var idx = reader.ReadByte();
                 var layer = new DiabloAnimationLayer();
                 Layers[idx] = layer;
-                layer.DirBounds = new Rectangle[DirectionsCount];
+                layer.Name = LayerNames[idx];
                 layer.IsCastingShadow = reader.ReadByte();
                 layer.IsSelectable = reader.ReadByte();
                 layer.TransparencyOverride = reader.ReadByte();
@@ -101,18 +108,39 @@ namespace Strategy.Diablo
                     layer.Palette[palIdx] = code;
                 }
                 layer.WeaponClass = TDiabloMap.ReadZString(reader);// Encoding.Default.GetString(reader.ReadBytes(4));
+                var mode = Mode;
                 var armor = ArmorClass[idx];
-                layer.Filename = basePath + $"{LayerNames[idx]}/{Token}{LayerNames[idx]}{armor}{Mode}{layer.WeaponClass}.dcc";
+                if (armor == null || armor == "")
+                {
+                    var dir = basePath + layer.Name;
+                    var mask = $"{Token}{layer.Name}*{mode}{layer.WeaponClass}.dc*";
+                    var layerFiles = Directory.GetFiles(dir, mask);
+                    if (layerFiles.Length == 0)
+                    {
+                        mask = $"{Token}{layer.Name}*{mode[0]}?{layer.WeaponClass}.dc*";
+                        layerFiles = Directory.GetFiles(dir, mask);
+                    //    //    if (layerFiles.Length == 0)
+                    //    //    {
+                    //    //        mask = $"{anim.Token}{layer}*NU*.dc*";
+                    //    //        layerFiles = Directory.GetFiles(dir, mask);
+                    //    //    }
+                    }
+                    var layerFile = Path.GetFileName(layerFiles[TGame.Random.Next(layerFiles.Length)]);
+                    armor = layerFile.Substring(4, 3);
+                    mode = layerFile.Substring(7, 2);
+                }
+                layer.Filename = basePath + $"{LayerNames[idx]}/{Token}{LayerNames[idx]}{armor}{mode}{layer.WeaponClass}.dcc";
                 if (File.Exists(layer.Filename))
                     layer.ReadDcc();
                 else
                 {
                     layer.Filename = layer.Filename.Substring(0, layer.Filename.Length - 4) + ".dc6";
-                    //ReadDc6(dccName, palette);
+                    layer.ReadDc6();
                 }
-                Sequences.Add(layer.Direction);
-                if (layer.Direction == null) continue;
-                for (int d = 0; d < DirectionsCount; d++)
+                Sequences.Add(layer.Directions);
+                //if (layer.Directions == null) continue;
+                layerDirCount = layer.Directions.Length;
+                for (int d = 0; d < layer.DirBounds.Length; d++)
                     dirBounds[d] = i > 0 ? Rectangle.Union(dirBounds[d], layer.DirBounds[d]) : layer.DirBounds[d];
             }
             // skip triggerTypes of each frame
@@ -124,6 +152,7 @@ namespace Strategy.Diablo
                 for (int f = 0; f < FramesCount; f++)
                 {
                     var frame = new TFrame();
+                    //var layerDir = Directions[32 / layerDirCount * d + (layerDirCount & 7)];
                     frame.Bounds = dirBounds[d];
                     //frame.Bounds = Bounds;
                     frame.Image = new Bitmap(frame.Bounds.Width, frame.Bounds.Height);
@@ -131,8 +160,8 @@ namespace Strategy.Diablo
                     for (var i = 0; i < LayersCount; i++)
                     {
                         var layer = Layers[reader.ReadByte()];
-                        if (layer.Direction == null) continue;
-                        var layerFrame = layer.Direction[d][f];
+                        if (layer.Directions == null) continue;
+                        var layerFrame = layer.Directions[d][f];
                         var offsetX = layerFrame.Bounds.X - layerFrame.Offset.X - frame.Bounds.X;
                         var offsetY = layerFrame.Bounds.Y - layerFrame.Offset.Y - frame.Bounds.Y;
                         gc.DrawImage(layerFrame.Image, offsetX, offsetY);

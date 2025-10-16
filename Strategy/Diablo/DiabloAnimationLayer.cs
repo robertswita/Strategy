@@ -11,7 +11,7 @@ namespace Strategy.Diablo
         {
             public int PosX, PosY;
             public int Width, Height;
-            public Rectangle Bounds {  get { return new Rectangle(PosX, PosY, Width, Height); } }
+            public Rectangle Bounds { get { return new Rectangle(PosX, PosY, Width, Height); } }
             public int[] Palette = new int[4];
             public int BitCount
             {
@@ -29,13 +29,14 @@ namespace Strategy.Diablo
         }
 
         public string Filename;
+        public string Name;
         public byte IsCastingShadow;
         public byte IsSelectable;
         public byte TransparencyOverride;
         public byte TransparencyLevel;
         public string WeaponClass;
         public Rectangle[] DirBounds;
-        public TFrame[][] Direction;
+        public TFrame[][] Directions;
         public int[] Palette;
         static int[] BitSizes = { 0, 1, 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 26, 28, 30, 32 };
 
@@ -53,10 +54,11 @@ namespace Strategy.Diablo
             for (int i = 0; i < directionsCount; i++)
                 dirStartFilePos[i] = reader.ReadInt32();
             dirStartFilePos[directionsCount] = (int)reader.BaseStream.Length;
-            Direction = new TFrame[directionsCount][];
+            Directions = new TFrame[directionsCount][];
+            DirBounds = new Rectangle[directionsCount];
             for (int d = 0; d < directionsCount; d++)
             {
-                var direction = Direction[d];
+                var direction = Directions[d];
                 var streamSize = dirStartFilePos[d + 1] - dirStartFilePos[d];
                 var bs = new BitStream(reader.ReadBytes(streamSize));
                 bs.Size = streamSize;
@@ -70,14 +72,14 @@ namespace Strategy.Diablo
                 var yoffsetBitSize = BitSizes[bs.Read(4)];
                 var optionalDataSizeBitSize = BitSizes[bs.Read(4)];
                 var frmDecodedSizeBitSize = BitSizes[bs.Read(4)];
-                var frames = new TFrame[framesCount];
-                Direction[d] = frames;
+                var dir = new TFrame[framesCount];
+                Directions[d] = dir;
                 var optionalDataSize = 0;
                 var bounds = new Rectangle();
-                for (var f = 0; f < frames.Length; f++)
+                for (var f = 0; f < dir.Length; f++)
                 {
                     var frame = new TFrame();
-                    frames[f] = frame;
+                    dir[f] = frame;
                     var frmVariable0 = bs.Read(variable0BitSize);
                     frame.Bounds.Width = bs.Read(widthBitSize);
                     frame.Bounds.Height = bs.Read(heightBitSize);
@@ -121,10 +123,10 @@ namespace Strategy.Diablo
                 codesStream.Position = rawCodesStream.Position + rawCodesStream.Size;
                 // stage 1 : retrieve palette entries used in macroblocks
                 var boundBlocks = new MacroBlock[(bounds.Height + 3) >> 2, (bounds.Width + 3) >> 2];
-                var framesBlocks = new MacroBlock[frames.Length][,];
-                for (var f = 0; f < frames.Length; f++)
+                var framesBlocks = new MacroBlock[dir.Length][,];
+                for (var f = 0; f < dir.Length; f++)
                 {
-                    var frame = frames[f];
+                    var frame = dir[f];
                     frame.Offset.X = frame.Bounds.X - bounds.X;
                     frame.Offset.Y = frame.Bounds.Y - bounds.Y;
                     framesBlocks[f] = CreateMacroblocks(frame);
@@ -175,7 +177,7 @@ namespace Strategy.Diablo
                 }
                 // stage 2 : build frames
                 TPixmap prevPixmap = null;
-                for (var f = 0; f < frames.Length; f++)
+                for (var f = 0; f < dir.Length; f++)
                 {
                     var pixmap = new TPixmap(bounds.Width, bounds.Height);
                     foreach (var block in framesBlocks[f])
@@ -199,7 +201,7 @@ namespace Strategy.Diablo
                         }
                         boundBlocks[block.PosY >> 2, block.PosX >> 2] = block;
                     }
-                    frames[f].Image = pixmap.Image;
+                    dir[f].Image = pixmap.Image;
                     prevPixmap = pixmap;
                 }
             }
@@ -237,6 +239,71 @@ namespace Strategy.Diablo
             }
             return blocks;
         }
-    }
 
+        public void ReadDc6()
+        {
+            var stream = new FileStream(Filename, FileMode.Open);
+            var reader = new BinaryReader(stream);
+            var version = reader.ReadInt32();
+            var flags = reader.ReadInt32();
+            var format = reader.ReadInt32();
+            var d2CmpColor = reader.ReadInt32();
+            var directionsCount = reader.ReadInt32();
+            var framesCount = reader.ReadInt32();
+            var framesFilePos = new int[directionsCount * framesCount + 1];
+            for (int i = 0; i < framesFilePos.Length - 1; i++)
+                framesFilePos[i] = reader.ReadInt32();
+            framesFilePos[framesFilePos.Length - 1] = (int)reader.BaseStream.Length;
+            Directions = new TFrame[directionsCount][];
+            DirBounds = new Rectangle[directionsCount];
+            for (int d = 0; d < directionsCount; d++)
+            {
+                var dir = new TFrame[framesCount];
+                Directions[d] = dir;
+                var bounds = new Rectangle();
+                for (var f = 0; f < dir.Length; f++)
+                {
+                    reader.ReadBytes(framesFilePos[d * framesCount + f] - (int)reader.BaseStream.Position);
+                    var frame = new TFrame();
+                    dir[f] = frame;
+                    var frmBottomUp = reader.ReadInt32();
+                    frame.Bounds.Width = reader.ReadInt32();
+                    frame.Bounds.Height = reader.ReadInt32();
+                    frame.Bounds.X = reader.ReadInt32();
+                    frame.Bounds.Y = reader.ReadInt32();
+                    if (frmBottomUp == 0)
+                        frame.Bounds.Y -= frame.Bounds.Height - 1;
+                    var zero = reader.ReadInt32();
+                    reader.ReadInt32();
+                    var dataSize = reader.ReadInt32();
+                    var pixmap = new TPixmap(frame.Bounds.Width, frame.Bounds.Height);
+                    for (int y = pixmap.Height - 1; y >= 0; y--)
+                    {
+                        var segBegin = 0;
+                        var segSize = 0;
+                        do
+                        {
+                            segSize = reader.ReadByte();
+                            if (segSize == 0x80)
+                                break;
+                            else if ((segSize & 0x80) != 0)
+                                segBegin += segSize & 0x7F;
+                            else
+                            {
+                                for (int x = segBegin; x < segBegin + segSize; x++)
+                                    pixmap[x, y] = TDiabloMap.Palette[reader.ReadByte()];
+                                segBegin += segSize;
+                            }
+                        } while (true);
+                    }
+                    frame.Image = pixmap.Image;
+                    if (f == 0) bounds = frame.Bounds;
+                    else bounds = Rectangle.Union(bounds, frame.Bounds);
+                }
+                DirBounds[d] = bounds;
+            }
+            reader.Close();
+        }
+
+    }
 }
