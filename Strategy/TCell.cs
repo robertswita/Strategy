@@ -30,7 +30,7 @@ namespace Strategy
         public bool Collision;
         public bool IsVisible;
         public TCell Parent;
-        public Bitmap WalkableMask;
+        public Bitmap CollisionMask;
         static int[] neighMask = new int[] { 1, -1, 1, 0, 1, 1, 0, 1, -1, 1, -1, 0, -1, -1, 0, -1 };
         public List<TCell> Neighbors
         {
