@@ -20,6 +20,7 @@ namespace Strategy
         public int WorldWidth;
         public string BasePath;
         public int WallsLayersCount = 1;
+        public int FloorsLayersCount = 1;
 
         public void ReadTileSet(string filename, string ext)
         {
@@ -118,6 +119,8 @@ namespace Strategy
                 for (int x = 0; x < WorldWidth; x++)
                 {
                     var cell = Cells[5 * y, 5 * x];
+                    var floor = (TDiabloWall)cell.Floor;
+                    //if (cell.Collision && cell.Floor != null && floor.Style != 0 && floor.Seq != 0) count1++;
                     var pos = World2MapTransform(cell.X, cell.Y);
                     if (pos.Y >= 0 && pos.Y < Height && pos.X >= 0 && pos.X < Width)
                     {
@@ -176,8 +179,8 @@ namespace Strategy
                 wall.Y += blockY - wall.Bounds.Y;
                 wall.Bounds = new Rectangle(wall.X, blockY, wall.Bounds.Width, wall.Bounds.Height);
                 if (wall.Bounds.Height > rowSize)
-                    rowSize = wall.Bounds.Height;
-                blockX += wall.Width;
+                    rowSize = wall.Bounds.Height + 2;
+                blockX += wall.Width + 2;
                 if (blockX > mapSize * blockSize)
                 {
                     blockX = 0;
@@ -379,56 +382,60 @@ namespace Strategy
                     var wall = walls[wallIdx]; wallIdx++;
                     if (typeLookup != null && wallType < typeLookup.Length)
                         wallType = typeLookup[wallType];
-                    wall.Type = (TWallType)wallType;
+                    wall.Type = wallType;
                     var selection = blockTiles[wallType, wall.Style, wall.Seq];
                     if (selection != null)
                     {
-                        if ((wall.TileInfo & 0xFF) != 0x81)
-                        {
-                            if ((wall.TileInfo & 0xFF) == 0x89)
-                                wall.Type = TWallType.Special1;
-                            ;
-                        }
                         if (cell.Wall == null) cell.Wall = new TWall();
                         cell.Wall.Tiles.Add(wall);
                         var rarity = TGame.Random.Next(selection.Count);
                         var wallTile = selection[rarity];
                         wall.Tiles = wallTile.Tiles;
+                        if ((wall.TileInfo & 0xFF) != 0x81)
+                        {
+                            if ((wall.TileInfo & 0xFF) == 0x89)
+                                wall.Type = (int)TWallType.Special1;
+                            ;
+                        }
+                        if (wall.Type >= (int)TWallType.LowerWall)
+                            foreach (var tile in wall.Tiles)
+                                if (!(tile as TDiabloTile).HasRleFormat)
+                                    ;
                         wall.TilesFlags = wallTile.TilesFlags;
-                        //for (int i = 0; i < wallTile.TilesFlags.Length; i++)
-                        //{
-                        //    if ((wallTile.TilesFlags[i] & 1) != 0)
-                        //    {
-                        //        cell.Collision = true;
-                        //        //if (i < wallTile.Tiles.Count)
-                        //        //{
-                        //        //    var tile = (cell.Floor as TDiabloWall).Tiles[i];
-                        //        //    var gc = Graphics.FromImage(tile.Image);
-                        //        //    var rb = TBoard.GetRhomb(new Rectangle(tile.X, tile.Y, 32, 16));
-                        //        //    gc.DrawPolygon(Pens.Magenta, rb);
-                        //        //}
-                        //    }
-                        //}
+                        for (int i = 0; i < wallTile.TilesFlags.Length; i++)
+                        {
+                            if ((wallTile.TilesFlags[i] & 1) != 0)
+                            {
+                                cell.Collision = true;
+                                //if (i < wallTile.Tiles.Count)
+                                //{
+                                //    var tile = (cell.Floor as TDiabloWall).Tiles[i];
+                                //    var gc = Graphics.FromImage(tile.Image);
+                                //    var rb = TBoard.GetRhomb(new Rectangle(tile.X, tile.Y, 32, 16));
+                                //    gc.DrawPolygon(Pens.Magenta, rb);
+                                //}
+                            }
+                        }
                         wall.Order = layerIdx * WorldWidth * WorldHeight + y * WorldWidth + x;
                         var pos = World2ViewTransform(5 * x, 5 * y);
                         wall.X = (int)pos.X - 5 * TDiabloTile.Width / 2;
                         wall.Y = (int)pos.Y - 5 * TDiabloTile.Height / 2;
-                        if (wall.Type == TWallType.Roof)
+                        if (wall.Type == (int)TWallType.Roof)
                         {
                             wall.Y -= wallTile.RoofHeight;
                             Roofs.Add(wall);
                         }
                         else
                         {
-                            if (wall.Type < TWallType.Roof)
+                            //if (wall.Type < (int)TWallType.Roof)
                                 wall.Y += 5 * TDiabloTile.Height;
                             Walls.Add(wall);
                         }
                         wall.Bounds = new Rectangle(wall.X, Math.Min(wall.Y, wall.Y + wallTile.Height), wallTile.Width, Math.Abs(wallTile.Height));
-                        if (wall.Type == TWallType.LeftTopCorner_Top)
+                        if (wall.Type == (int)TWallType.LeftTopCorner_Top)
                         {
                             var extraTile = new TDiabloWall();
-                            extraTile.Type = TWallType.LeftTopCorner_Left;
+                            extraTile.Type = (int)TWallType.LeftTopCorner_Left;
                             extraTile.Style = wall.Style;
                             extraTile.Seq = wall.Seq;
                             selection = blockTiles[(int)extraTile.Type, extraTile.Style, extraTile.Seq];
@@ -441,8 +448,8 @@ namespace Strategy
                                 Walls.Add(extraTile);
                             }
                         }
-                        else if (wall.Type >= TWallType.Special1 && wall.Type <= TWallType.Special2)
-                            cell.EventIdx = wall.Type - TWallType.Special1 + 1;
+                        else if (wall.Type >= (int)TWallType.Special1 && wall.Type <= (int)TWallType.Special2)
+                            cell.EventIdx = wall.Type - (int)TWallType.Special1 + 1;
                     }
                 }
         }
@@ -458,8 +465,10 @@ namespace Strategy
                     {
                         var wall = (TDiabloWall)cell.Wall.Tiles[layerIdx];
                             tileInfo = wall.Style << 20 | wall.Seq << 8 | 0x81;
-                        if (wall.Type == TWallType.LeftRightDoor || wall.Type == TWallType.TopBottomDoor)
+                        if (wall.Type == (int)TWallType.LeftRightDoor || wall.Type == (int)TWallType.TopBottomDoor)
                             tileInfo |= 0x10;
+                        //if (wall.Type >= (int)TWallType.LowerWall)
+                        //    tileInfo = tileInfo & ~0xFF | 0xff;
                         if (wall.Hidden)
                             tileInfo |= unchecked((int)0x80000000);
                     }
@@ -479,6 +488,44 @@ namespace Strategy
                 }
         }
 
+        bool collisionsEnabled;
+        public override bool CollisionsEnabled 
+        { 
+            get => collisionsEnabled;
+            set
+            {
+                if (collisionsEnabled != value)
+                {
+                    collisionsEnabled = value;
+                    for (int y = 0; y < Height; y++)
+                        for (int x = 0; x < Width; x++)
+                        {
+                            var cell = Cells[y, x];
+                            if (cell == null) continue;
+                            if (!collisionsEnabled)
+                                cell.CollisionMask = null;
+                            else if (cell.Collision)
+                            {
+                                cell.CollisionMask = new Bitmap(5 * TDiabloTile.Width, 5 * TDiabloTile.Height);
+                                var floor = (TDiabloWall)cell.Floor;
+                                if (floor == null || floor.Style == 0 && floor.Seq == 0)
+                                    floor = (TDiabloWall)cell.Wall.Tiles[0];
+                                var gc = Graphics.FromImage(cell.CollisionMask);
+                                for (int u = 0; u < 5; u++)
+                                    for (int v = 0; v < 5; v++)
+                                        if ((floor.TilesFlags[5 * u + 4 - v] & 1) != 0)
+                                        {
+                                            var tilePos = new Point();
+                                            tilePos.X = (u + 4 - v) * TDiabloTile.Width / 2;
+                                            tilePos.Y = (8 - u - v) * TDiabloTile.Height / 2;
+                                            var rb = TBoard.GetRhomb(new Rectangle(tilePos.X, tilePos.Y, 32, 16));
+                                            gc.DrawPolygon(Pens.Magenta, rb);
+                                        }
+                            }
+                        }
+                }
+            }
+        }
         void ReadFloors(BinaryReader reader, List<TDiabloWall>[,,] blockTiles)
         {
             for (int y = 0; y < WorldHeight; y++)
@@ -486,19 +533,15 @@ namespace Strategy
                 {
                     var tileInfo = reader.ReadInt32();
                     if (tileInfo == 0) continue;
-                    //var wall = new TDiabloWall();
-                    //wall.Seq = tileInfo >> 8 & 0x3F;
-                    //wall.Style = tileInfo >> 20 & 0x3F;
                     var selection = blockTiles[0, tileInfo >> 20 & 0x3F, tileInfo >> 8 & 0x3F];
                     if (selection != null)
                     {
                         var cell = Cells[5 * y, 5 * x];
                         var floor = selection[TGame.Random.Next(selection.Count)];
-                        //if (floor.Image == null) {
+                        if (floor.Image == null)
+                        {
                             var floorImage = new Bitmap(floor.Width, 80);
                             var gc = Graphics.FromImage(floorImage);
-                            cell.WalkableMask = new Bitmap(floorImage.Width, floorImage.Height);
-                            var gcw = Graphics.FromImage(cell.WalkableMask);
                             for (int u = 0; u < 5; u++)
                                 for (int v = 0; v < 5; v++)
                                 {
@@ -508,37 +551,16 @@ namespace Strategy
                                     {
                                         var tile = floor.Tiles[tileIdx];
                                         gc.DrawImage(tile.Image, tile.X, tile.Y);
-                                        if ((floor.TilesFlags[5 * u + 4 - v] & 1) != 0)
-                                        {
-                                            cell.Collision = true;
-                                            var rb = TBoard.GetRhomb(new Rectangle(tile.X, tile.Y, 32, 16));
-                                            gcw.DrawPolygon(Pens.Magenta, rb);
-                                        }
                                     }
+                                    if ((floor.TilesFlags[5 * u + 4 - v] & 1) != 0)
+                                        cell.Collision = true;
                                 }
-                            floor.Image = floorImage;
-                        //}
-                        //if (cell.Wall != null)
-                        //{
-                        //    var piece = new TTile();
-                        //    var bmp = new Bitmap(160, 80);
-                        //    var gc = Graphics.FromImage(bmp);
-                        //    //for (int i = 0; i < cell.Wall.Tiles.Count; i++)
-                        //    {
-                        //        //var wall = (TDiabloWall)cell.Floor.Tiles[i];
-                        //        //var gc = Graphics.FromImage(floor.Image);
-                        //        for (int j = 0; j < floor.Tiles.Count; j++)
-                        //            if ((floor.TilesFlags[j] & 1) != 0)
-                        //            {
-                        //                cell.Collision = true;
-                        //                var tile = floor.Tiles[j];
-                        //                var rb = TBoard.GetRhomb(new Rectangle(tile.X, tile.Y, 32, 16));
-                        //                gc.DrawPolygon(Pens.Magenta, rb);
-                        //            }
-                        //    }
-                        //    piece.Image = bmp;
-                        //    cell.Piece = piece;
-                        //}
+                            if (floor.Image == null)
+                            {
+                                floor.Image = floorImage;
+                                Floors.Add(floor);
+                            }
+                        }
                         cell.Floor = floor;
                     }
                 }
@@ -554,7 +576,8 @@ namespace Strategy
                     if (cell.Floor != null)
                     {
                         var floor = (TDiabloWall)cell.Floor;
-                        tileInfo = floor.Style << 20 | floor.Seq << 8 | 0xc2;
+                        if (floor.Type == 0)
+                            tileInfo = floor.Style << 20 | floor.Seq << 8 | 0xc2;
                     }
                     writer.Write(tileInfo);
                 }
@@ -648,10 +671,10 @@ namespace Strategy
             else
             {
                 WallsLayersCount = reader.ReadInt32();
-                var floorsLayersCount = Version < TVersion.HasFloors ? 1 : reader.ReadInt32();
+                FloorsLayersCount = Version < TVersion.HasFloors ? 1 : reader.ReadInt32();
                 for (int i = 0; i < WallsLayersCount; i++)
                     ReadWallsLayer(reader, blockTiles, i);
-                for (int i = 0; i < floorsLayersCount; i++)
+                for (int i = 0; i < FloorsLayersCount; i++)
                     ReadFloors(reader, blockTiles);
                 ReadShadows(reader);
                 if (SubstitutionType == 1 || SubstitutionType == 2)
@@ -676,11 +699,11 @@ namespace Strategy
             //    blockTiles[(int)dbTile.Type, dbTile.Style, dbTile.Seq].Add(dbTile);
             //}
             writer.Write(WallsLayersCount);
-            var floorsLayersCount = 1;
-            writer.Write(floorsLayersCount);
+            //var floorsLayersCount = 1;
+            writer.Write(FloorsLayersCount);
             for (int i = 0; i < WallsLayersCount; i++)
                 WriteWallsLayer(writer, i);
-            for (int i = 0; i < floorsLayersCount; i++)
+            for (int i = 0; i < FloorsLayersCount; i++)
                 WriteFloors(writer);
             WriteShadows(writer);
             if (SubstitutionType == 1 || SubstitutionType == 2)

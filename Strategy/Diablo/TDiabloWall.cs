@@ -21,7 +21,7 @@ namespace Strategy.Diablo
         public TMaterial Material;
         public int Width;
         public int Height;
-        public TWallType Type; // Orientation
+        public int Type; // Orientation
         public int Style; // MainIndex
         public int Seq; // SubIndex
         public int Rarity;
@@ -29,6 +29,12 @@ namespace Strategy.Diablo
         public byte[] TilesFlags = new byte[25];
         public bool Hidden;
         public int EncodedSize;
+        protected override int CompareTo(TSprite other)
+        {
+            var otherWall = (TDiabloWall)other;
+            if (Type != otherWall.Type) return otherWall.Type.CompareTo(Type);
+            return base.CompareTo(otherWall);
+        }
         public int ReadHeader(BinaryReader reader)
         {
             Direction = reader.ReadInt32();
@@ -37,7 +43,7 @@ namespace Strategy.Diablo
             Height = reader.ReadInt32();
             Width = reader.ReadInt32();
             var zeros = reader.ReadBytes(4);
-            Type = (TWallType)reader.ReadInt32();
+            Type = reader.ReadInt32();
             Style = reader.ReadInt32();
             Seq = reader.ReadInt32();
             Rarity = reader.ReadInt32();
