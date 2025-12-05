@@ -15,20 +15,71 @@ namespace Strategy
 
         public void Export(string filename)
         {
-            DiabloMap = new TDiabloMap();
-            DiabloMap.ActNo = 0;
-            DiabloMap.ReadPalette(filename);
-            var size = (Game.Map.Width + 2 * Game.Map.Height) / 5;
-            DiabloMap.WorldWidth = size;
-            DiabloMap.WorldHeight = size;
-            DiabloMap.GridOffset = new Vector2(-2f * size + 2, 2f * size - 2);
-            ExportFloors();
-            ExportWalls();
-            DiabloMap.WriteTileSet(filename, ".dt1");
-            DiabloMap.WriteMap(filename);
+            //var subMaps = SplitDispelMap();
+            var subMaps = new TDispelMap[1, 1] { { (TDispelMap)Game.Map } };
+            var baseName = filename.Substring(0, filename.Length - 4);
+            for (int y = 0; y < subMaps.GetLength(0); y++)
+                for (int x = 0; x < subMaps.GetLength(1); x++)
+                {
+                    var subName = subMaps.Length == 1 ? filename : $"{baseName}{y}{x}.ds1";
+                    Game.Map = subMaps[y, x];
+                    DiabloMap = new TDiabloMap();
+                    DiabloMap.ActNo = 0;
+                    DiabloMap.ReadPalette(subName);
+                    var size = (Game.Map.Width + 2 * Game.Map.Height) / 5;// + 2;
+                    DiabloMap.WorldWidth = size;
+                    DiabloMap.WorldHeight = size;
+                    DiabloMap.GridOffset = new Vector2(-2f * size + 2f, 2f * size - 2);
+                    ExportFloors();
+                    ExportWalls();
+                    DiabloMap.WriteTileSet(subName, ".dt1");
+                    DiabloMap.WriteMap(subName);
+                }
         }
 
-        public void ExportFloors()
+        public TDispelMap[,] SplitDispelMap()
+        {
+            var maxSize = 250;
+            var colsCount = (Game.Map.Width + maxSize - 1) / maxSize;
+            var subMaps = new TDispelMap[colsCount, colsCount];
+            var subMapSizeW = (Game.Map.Width + colsCount - 1) / colsCount;
+            var subMapSizeH = subMapSizeW * 3 / 4;
+            for (int rowIdx = 0; rowIdx < colsCount; rowIdx++)
+                for (int colIdx = 0; colIdx < colsCount; colIdx++)
+                {
+                    var subMap = new TDispelMap();
+                    subMap.Width = subMapSizeW;
+                    subMap.Height = subMapSizeH;
+                    subMap.Floors = Game.Map.Floors;
+                    subMaps[rowIdx, colIdx] = subMap;
+                    subMap.Cells = new TCell[subMapSizeH, subMapSizeW];
+                    for (int y = 0; y < subMapSizeH; y++)
+                        for (int x = 0; x < subMapSizeW; x++)
+                        {
+                            var cell = new TCell();
+                            var posY = rowIdx * subMapSizeH + y;
+                            var posX = colIdx * subMapSizeW + x;
+                            if (posY < Game.Map.Height && posX < Game.Map.Width)
+                            {
+                                var offsetX = -TDispelTile.Width / 2 * colIdx * subMapSizeW;
+                                var offsetY = -TDispelTile.Height * rowIdx * subMapSizeH;
+                                cell = Game.Map.Cells[posY, posX];
+                                cell.Bounds.Offset(offsetX, offsetY);
+                                var wall = cell.Wall;
+                                if (wall != null)
+                                {
+                                    wall.X += offsetX;
+                                    wall.Y += offsetY;
+                                    subMap.Walls.Add(wall);
+                                }
+                            }  
+                            subMap.Cells[y, x] = cell;
+                        }
+                }
+            return subMaps;
+        }
+
+        public void ExportFloors2()
         {
             var mapViewSize = Game.Map.Map2ViewTransform(Game.Map.Width, Game.Map.Height);
             var dispelBmp = new Bitmap((int)mapViewSize.X, (int)mapViewSize.Y);
@@ -118,7 +169,7 @@ namespace Strategy
                             {
                                 visAdded = true;
                                 var vis = new TDiabloWall();
-                                vis.Type = TWallType.Special1;
+                                vis.Type = (int)TWallType.Special1;
                                 vis.Hidden = true;
                                 vis.Style = 0;
                                 vis.Tiles = floor.Tiles;
@@ -137,8 +188,10 @@ namespace Strategy
                                 //if (prevCell == cell) continue;
                                 var cellPos = Game.Map.Map2ViewTransform(prevCell.X, prevCell.Y);
                                 cellPos = DiabloMap.View2WorldTransform(cellPos.X, cellPos.Y);
-                                if (cellPos.Y < 0 || cellPos.Y >= 5 * size || cellPos.X < 0 || cellPos.X >= 5 * size) continue;
-                                var prevDiabloCell = DiabloMap.Cells[(int)cellPos.Y / 5 * 5, (int)cellPos.X / 5 * 5];
+                                cellPos.X = (int)((cellPos.X + 2.5f) / 5);
+                                cellPos.Y = (int)((cellPos.Y + 2.5f) / 5);
+                                if (cellPos.Y < 0 || cellPos.Y >= size || cellPos.X < 0 || cellPos.X >= size) continue;
+                                var prevDiabloCell = DiabloMap.Cells[(int)cellPos.Y * 5, (int)cellPos.X * 5];
                                 if (prevDiabloCell != null && prevDiabloCell.Floor != null && prevDiabloCell != diabloCell)
                                 {
                                     var prevFloor = (TDiabloWall)prevDiabloCell.Floor;
@@ -146,32 +199,256 @@ namespace Strategy
                                     for (; j < floor.TilesFlags.Length; j++)
                                         if (prevFloor.TilesFlags[j] != floor.TilesFlags[j])
                                             break;
-                                    if (j < floor.TilesFlags.Length)
-                                        continue;
+                                    //if (j < floor.TilesFlags.Length)
+                                    //    continue;
                                     if (floor.IsEqual(prevFloor))
                                     {
                                         diabloCell.Floor = prevFloor;
+                                        duplicatesCount++;
+                                        floorRef.RemoveAt(i);
+
+                                        //diabloCell.Wall = new TDiabloWall();
+                                        //diabloCell.Wall.Tiles.Add(prevFloor);
+                                        break;
+                                    }
+                                }
+                            }
+                            //if (diabloCell.Floor != null)
+                            //    continue;
+                        }
+                    }
+                    if (diabloCell.Floor == null)
+                    {
+                        diabloCell.Floor = floor;
+                        DiabloMap.Walls.Add(floor);
+                    }
+                    floor = (TDiabloWall)diabloCell.Floor;
+                    //diabloCell.Floor.Index = diabloCellIdx;
+                    floor.Style = floor.Index >> 6 & 63;
+                    floor.Seq = floor.Index & 63;
+                    floor.Type = (int)TWallType.LowerWall;
+                    floor.Height = -96;
+                    if (diabloCell.Wall == null)
+                    {
+                        diabloCell.Wall = new TDiabloWall();
+                        diabloCell.Wall.Tiles.Add(floor);
+                    }
+                }
+            dispelBmp.Dispose();
+
+        }
+        public void ExportFloors()
+        {
+            var mapViewSize = Game.Map.Map2ViewTransform(Game.Map.Width, Game.Map.Height);
+            var dispelBmp = new Bitmap((int)mapViewSize.X, (int)mapViewSize.Y);
+            var gc = Graphics.FromImage(dispelBmp);
+            var floorRefs = new List<TCell>[Game.Map.Floors.Count];
+            for (int y = 0; y < Game.Map.Height; y++)
+                for (int x = 0; x < Game.Map.Width; x++)
+                {
+                    var cell = Game.Map.Cells[y, x];
+                    var bounds = cell.Bounds;
+                    if (cell.Floor != null)
+                    {
+                        var refCells = floorRefs[cell.Floor.Index];
+                        if (refCells == null)
+                        {
+                            refCells = new List<TCell>();
+                            floorRefs[cell.Floor.Index] = refCells;
+                        }
+                        refCells.Add(cell);
+                        gc.DrawImage(cell.Floor.Image, bounds.X, bounds.Y);
+                    }
+                }
+            var size = DiabloMap.WorldWidth;
+            var dispelBmpRect = new Rectangle(0, 0, dispelBmp.Width, dispelBmp.Height);
+            dispelBmpRect.Inflate(-TDispelTile.Width / 2, -TDispelTile.Height);
+            //dispelBmpRect.Offset(TDispelTile.Width / 2, 0);
+            var duplicatesCount = 0;
+            var visAdded = false;
+            var commonFloor = new TDiabloWall();
+            commonFloor.Width = 5 * TDiabloTile.Width;
+            commonFloor.Height = -8 * TDiabloTile.Height;
+            DiabloMap.Floors.Add(commonFloor);
+            DiabloMap.Walls.Add(commonFloor);
+            //var floorIdx = 0;
+            DiabloMap.Cells = new TCell[5 * size, 5 * size];
+            var offsetX = -16;
+            var offsetY = 64;
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    var diabloCell = new TCell();
+                    diabloCell.X = 5 * x;
+                    diabloCell.Y = 5 * y;
+                    diabloCell.Floor = commonFloor;
+                    diabloCell.Wall = new TDiabloWall();
+                    var diabloCellIdx = y * size + x;
+                    DiabloMap.Cells[diabloCell.Y, diabloCell.X] = diabloCell;
+                    var pos = DiabloMap.World2ViewTransform(diabloCell.X, diabloCell.Y);
+                    //pos.Y -= 5 * TDiabloTile.Height;
+                    if (!dispelBmpRect.Contains((int)pos.X, (int)pos.Y)) continue;
+                    //if ((x & 1) != 0 || (y & 1) != 0) continue;
+                    var floor = new TDiabloWall();
+                    floor.Width = 5 * TDiabloTile.Width / 2;
+                    floor.Height = -10 * TDiabloTile.Height / 2;
+                    //floor.Width = 160;
+                    //floor.Height = -80;
+                    floor.Bounds = new Rectangle((int)pos.X + offsetX, (int)pos.Y - 96 + offsetY, floor.Width, -floor.Height);
+                    //var segX = x & 1;
+                    //var segY = y & 1;
+                    //if (segX == 0 && segY == 1)
+                    //{
+                    //    floor.Width = 3 * TDiabloTile.Width;
+                    //    floor.Height = -3 * TDiabloTile.Width;
+                    //}
+                    //else if (segX == 0 && segY == 1)
+                    //{
+                    //    floor.Width = 3 * TDiabloTile.Width;
+                    //    floor.Height = -2 * TDiabloTile.Width;
+                    //}
+                    //else if (segX == 1 && segY == 0)
+                    //{
+                    //    floor.Width = 2 * TDiabloTile.Width;
+                    //    floor.Height = -3 * TDiabloTile.Width;
+                    //}
+                    //else
+                    //{
+                    //    floor.Width = 2 * TDiabloTile.Width;
+                    //    floor.Height = -2 * TDiabloTile.Width;
+                    //}
+                    //floor.Bounds = new Rectangle((int)pos.X + segX * 16, (int)pos.Y - 96 + segX * 40 + segY * 16, floor.Width, -floor.Height);
+                    for (int u = 0; u < 5; u++)
+                        for (int v = 0; v < 5; v++)
+                        {
+                            var tilePos = DiabloMap.World2ViewTransform(diabloCell.X + 4 - v, diabloCell.Y + 4 - u);
+                            tilePos.X += 2 * TDiabloTile.Width;
+                            //tilePos.Y -= 5 * TDiabloTile.Height;
+                            var cellPos = Game.Map.View2WorldTransform(tilePos.X, tilePos.Y);
+                            cellPos = Game.Map.World2MapTransform((int)(cellPos.X), (int)(cellPos.Y));
+                            //var cellPos = Game.Map.View2MapTransform(tilePos.X, tilePos.Y);
+                            if (cellPos.X >= 0 && cellPos.X < Game.Map.Width && cellPos.Y >= 0 && cellPos.Y < Game.Map.Height)
+                            {
+                                var cell = Game.Map.Cells[(int)cellPos.Y, (int)cellPos.X];
+                                if (cell.Collision)
+                                {
+                                    var cellBounds = cell.Bounds;
+                                    var tileBounds = new Rectangle((int)tilePos.X - 16, (int)tilePos.Y - 16, 32, 32);
+                                    //cellBounds.Inflate(-1, -1);
+                                    if (Rectangle.Union(cellBounds, tileBounds).Equals(cellBounds))
+                                        floor.TilesFlags[5 * u + 4 - v] |= 1;
+                                }
+                            }
+
+                        }
+                    var isEmpty = true;
+                    for (int u = 0; u < 3; u++)
+                        for (int v = 0; v < 3; v++)
+                        {
+                            var tile = new TDiabloTile();
+                            var tileBmp = new Bitmap(TDiabloTile.Width, 2 * TDiabloTile.Height);
+                            var tilePos = new Vector2(pos.X + v * tileBmp.Width, pos.Y + u * tileBmp.Height);
+                            tile.X = v * tileBmp.Width;
+                            tile.Y = u * tileBmp.Height - 96;
+                            var tileBounds = new Rectangle(0, 0, tileBmp.Width, tileBmp.Height);
+                            tileBounds.X = (int)pos.X + tile.X + offsetX;
+                            tileBounds.Y = (int)pos.Y + tile.Y + offsetY;
+                            tileBounds = Rectangle.Intersect(tileBounds, floor.Bounds);
+                            var tileGc = Graphics.FromImage(tileBmp);
+                            tileGc.DrawImage(dispelBmp, 0, 0, tileBounds, GraphicsUnit.Pixel);
+                            tile.HasRleFormat = true;
+                            tile.Image = tileBmp;
+                            tile.Encode();
+                            isEmpty &= tile.IsEmpty;
+                            floor.Tiles.Add(tile);
+                        }
+                    if (isEmpty) continue;
+                    var duplicatePos = Game.Map.View2MapTransform(pos.X, pos.Y);
+                    {
+                        var cell = Game.Map.Cells[(int)duplicatePos.Y, (int)duplicatePos.X];
+                        if (cell.Floor != null)
+                        {
+                            if (cell.EventIdx > 0 && cell.EventIdx <= 61 && !visAdded)
+                            {
+                                visAdded = true;
+                                var vis = new TDiabloWall();
+                                vis.Type = (int)TWallType.Special1;
+                                //vis.Hidden = true;
+                                vis.Style = 0;
+                                vis.Tiles = floor.Tiles;
+                                //wall.Style = cell.EventIdx >> 6;
+                                //wall.Seq = cell.EventIdx & 63;
+                                vis.Width = 5 * TDiabloTile.Width;
+                                vis.Height = -10 * TDiabloTile.Height;
+                                diabloCell.Wall.Tiles.Add(vis);
+                                DiabloMap.Walls.Add(vis);
+                                continue;
+                            }
+                            var floorRef = floorRefs[cell.Floor.Index];
+                            for (var i = 0; i < floorRef.Count; i++)
+                            {
+                                var prevCell = floorRef[i];
+                                //if (prevCell == cell) continue;
+                                var cellPos = Game.Map.Map2ViewTransform(prevCell.X, prevCell.Y);
+                                cellPos = DiabloMap.View2WorldTransform(cellPos.X, cellPos.Y);
+                                cellPos.X = (int)((cellPos.X + 2.5f) / 5);
+                                cellPos.Y = (int)((cellPos.Y + 2.5f) / 5);
+                                if (cellPos.Y < 0 || cellPos.Y >= size || cellPos.X < 0 || cellPos.X >= size) continue;
+                                var prevDiabloCell = DiabloMap.Cells[(int)cellPos.Y * 5, (int)cellPos.X * 5];
+                                if (prevDiabloCell != null && prevDiabloCell.Wall != null && prevDiabloCell != diabloCell)
+                                {
+                                    if (prevDiabloCell.Wall.Tiles.Count == 0) continue;
+                                    var prevFloor = (TDiabloWall)prevDiabloCell.Wall.Tiles[0];
+                                    if (prevFloor.Type == (int)TWallType.Special1) continue;
+                                    if (floor.IsEqual(prevFloor))
+                                    {
+                                        diabloCell.Wall.Tiles.Add(floor);
+                                        AddCollisionFloor(diabloCell);
+                                        diabloCell.Wall.Tiles[0] = prevFloor;
+                                        if (prevDiabloCell.Floor == commonFloor)
+                                            AddCollisionFloor(prevDiabloCell);
                                         duplicatesCount++;
                                         floorRef.RemoveAt(i);
                                         break;
                                     }
                                 }
                             }
-                            if (diabloCell.Floor != null)
-                                continue;
+                            //if (diabloCell.Floor != null)
+                            //    continue;
                         }
                     }
-                    DiabloMap.Walls.Add(floor);
-                    diabloCell.Floor = floor;
-                    //diabloCell.Floor.Index = diabloCellIdx;
-                    floor.Style = diabloCellIdx >> 6;
-                    floor.Seq = diabloCellIdx & 63;
+                    if (diabloCell.Wall.Tiles.Count == 0)
+                    {
+                        diabloCell.Wall.Tiles.Add(floor);
+                        DiabloMap.Walls.Add(floor);
+                    }
+                    floor.Type = (int)TWallType.LowerWall + (floor.Index >> 12);
+                    floor.Style = floor.Index >> 6 & 63;
+                    floor.Seq = floor.Index & 63;
+                    floor.Direction = floor.Type % 10;
                 }
-
+            dispelBmp.Dispose();
         }
+
+        void AddCollisionFloor(TCell diabloCell)
+        {
+            var floor = (TDiabloWall)diabloCell.Wall.Tiles[0];
+            var collisionFloor = new TDiabloWall();
+            collisionFloor.Width = 5 * TDiabloTile.Width;
+            collisionFloor.Height = -8 * TDiabloTile.Height;
+            collisionFloor.TilesFlags = floor.TilesFlags;
+            floor.TilesFlags = new byte[floor.TilesFlags.Length];
+            diabloCell.Floor = collisionFloor;
+            collisionFloor.Style = DiabloMap.Floors.Count >> 6 & 63;
+            collisionFloor.Seq = DiabloMap.Floors.Count & 63;
+            DiabloMap.Floors.Add(collisionFloor);
+            DiabloMap.Walls.Add(collisionFloor);
+        }
+
         public void ExportWalls()
         {
             var size = DiabloMap.WorldWidth;
+            var floorsCount = DiabloMap.Walls.Count;
             var walls = new List<TWall>(Game.Map.Walls);
             walls.Sort();
             var wallLayerIdx = new int[size * size];
@@ -179,7 +456,7 @@ namespace Strategy
             {
                 var wall = walls[i];
                 var wallPosX = wall.X + 1 * TDiabloTile.Width / 2;
-                var wallPosY = wall.Y + wall.Bounds.Height - 9 * TDiabloTile.Height / 2;
+                var wallPosY = wall.Y + wall.Bounds.Height - 8 * TDiabloTile.Height / 2;
                 var cellPos = DiabloMap.View2WorldTransform(wallPosX, wallPosY);
                 var gridPos = new Vector2((int)cellPos.X / 5 * 5, (int)cellPos.Y / 5 * 5);
                 var diabloWallPos = DiabloMap.World2ViewTransform(gridPos.X, gridPos.Y);
@@ -199,8 +476,12 @@ namespace Strategy
                 }
                 var diabloCell = DiabloMap.Cells[(int)gridPos.Y, (int)gridPos.X];
                 var diabloCellIdx = diabloCell.Y / 5 * size + diabloCell.X / 5;
-                if (diabloCell.Wall == null) diabloCell.Wall = new TDiabloWall();
                 var layerIdx = wallLayerIdx[diabloCellIdx];
+                //if (diabloCell.Wall == null)
+                //    diabloCell.Wall = new TDiabloWall();
+                //else 
+                if (layerIdx == 0)
+                    layerIdx++;
                 var diabloWall = layerIdx < diabloCell.Wall.Tiles.Count ? (TDiabloWall)diabloCell.Wall.Tiles[layerIdx] : null;
                 if (layerIdx > DiabloMap.WallsLayersCount - 1)
                     DiabloMap.WallsLayersCount++;
@@ -208,12 +489,12 @@ namespace Strategy
                 if (diabloWall == null)
                 {
                     diabloWall = new TDiabloWall();
-                    //diabloWall.TilesFlags = (diabloCell.Wall as TDiabloWall).TilesFlags;
-                    diabloWall.Direction = 1;
-                    diabloWall.Type = (TWallType)(1);// (TWallType)(20 + layerIdx);// (2 * layerIdx + 2);
                     DiabloMap.Walls.Add(diabloWall);
-                    diabloWall.Style = DiabloMap.Walls.Count >> 6;
-                    diabloWall.Seq = DiabloMap.Walls.Count & 63;
+                    var wallIdx = DiabloMap.Walls.Count - floorsCount;
+                    diabloWall.Type = 1 + (wallIdx >> 12);
+                    diabloWall.Style = wallIdx >> 6 & 63;
+                    diabloWall.Seq = wallIdx & 63;
+                    diabloWall.Direction = diabloWall.Type % 10;
                     diabloCell.Wall.Tiles.Add(diabloWall);
                 }
                 for (int n = 0; n < wall.Tiles.Count; n++)
@@ -239,26 +520,6 @@ namespace Strategy
                 diabloWall.Width = diabloWall.Bounds.Width;
                 diabloWall.Height = -diabloWall.Bounds.Height - 2 * TDiabloTile.Height;
             }
-            //Collisions
-            //foreach (var cell in DiabloMap.Cells)
-            //    if (cell != null && cell.Wall != null)
-            //    {
-            //        var cellWall = (TDiabloWall)cell.Wall;
-            //        if (cellWall.Tiles.Count == 0)
-            //        {
-            //            var diabloWall = new TDiabloWall();
-            //            diabloWall.TilesFlags = cellWall.TilesFlags;
-            //            diabloWall.Type = TWallType.TopBottom;
-            //            var diabloCellIdx = cell.Y / 5 * size + cell.X / 5;
-            //            diabloWall.Style = diabloCellIdx >> 6;
-            //            diabloWall.Seq = diabloCellIdx & 63;
-            //            DiabloMap.Walls.Add(diabloWall);
-            //            cell.Wall.Tiles.Add(diabloWall);
-            //        }
-            //        else
-            //            (cellWall.Tiles[0] as TDiabloWall).TilesFlags = cellWall.TilesFlags;
-
-            //    }
         }
 
         public Bitmap GetDuplicatesBmp()

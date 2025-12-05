@@ -23,6 +23,7 @@ namespace Strategy
         public TCell[,] Cells;
         public List<List<string>> Dialogs;
         public List<List<string>> DialogTree;
+        public virtual bool CollisionsEnabled { get; set; }
 
         public virtual Vector2 World2ViewTransform(float x, float y) { 
             return new Vector2(x * TTile.Width, y * TTile.Height); 

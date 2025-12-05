@@ -285,7 +285,8 @@ namespace Strategy
             //    mapView.Offset(0, -1);
             Font font = new Font("Arial", 5f);
             var eventTiles = new List<Rectangle>();
-            var collisionTiles = new List<Rectangle>();
+            var collisionCells = new List<TCell>();
+            Game.Map.CollisionsEnabled = ShowedLayers.HasFlag(TDrawLayers.Collisions);
             if (Game.Map.Cells != null)
                 for (int y_ = mapView.Top; y_ < mapView.Bottom; y_++)
                     for (int x_ = mapView.Left; x_ < mapView.Right; x_++)
@@ -328,10 +329,12 @@ namespace Strategy
                                 var labelSize = new Size(label.Length * font.Height / 2, font.Height);
                                 gc.DrawString(cell.Floor.Index.ToString(), font, Brushes.White, rhomb[1].X - labelSize.Width / 2, rhomb[0].Y - labelSize.Height / 2);
                             }
-                            if (ShowedLayers.HasFlag(TDrawLayers.Collisions) && cell.WalkableMask != null)
-                                //foreach (var rc in collisionTiles)
-                                //gc.DrawPolygon(Pens.Blue, GetRhomb(rc));
-                                gc.DrawImage(cell.WalkableMask, rc.Left, rc.Top);
+                            if (cell.Collision && ShowedLayers.HasFlag(TDrawLayers.Collisions))
+                                collisionCells.Add(cell);
+                                //if (cell.WalkableMask != null)
+                                //    gc.DrawImage(cell.WalkableMask, rc.Left, rc.Top);
+                                //else
+                                //    gc.DrawPolygon(Pens.Magenta, GetRhomb(rc));
                         }
                         var piece = cell.Piece;
                         if (piece != null && piece.Image != null)
@@ -367,9 +370,9 @@ namespace Strategy
             //vp = new Rectangle(vp.Left * sx, vp.Top * sy, vp.Width * sx, vp.Height * sy);
             VisibleSprites.Clear();
             if (ShowedLayers.HasFlag(TDrawLayers.Walls))
-                foreach (var column in Game.Map.Walls)
-                    //if (column.IsVisibleInRect(vp))
-                        VisibleSprites.Add(column);
+                foreach (var wall in Game.Map.Walls)
+                    if (wall.IsVisibleInRect(vp))
+                        VisibleSprites.Add(wall);
             if (ShowedLayers.HasFlag(TDrawLayers.Sprites))
                 foreach (var sprite in Game.Map.Sprites)
                     if (sprite.IsVisibleInRect(vp))
@@ -377,7 +380,8 @@ namespace Strategy
             VisibleSprites.Sort();
             foreach (var sprite in VisibleSprites)
             {
-                sprite.Draw(gc);
+                //if (ShowedLayers.HasFlag(TDrawLayers.Walls))
+                    sprite.Draw(gc);
                 if (ShowedLayers.HasFlag(TDrawLayers.Bounds))
                     gc.DrawRectangle(Pens.White, sprite.Bounds);
             }
@@ -388,9 +392,15 @@ namespace Strategy
             if (ShowedLayers.HasFlag(TDrawLayers.Events))
                 foreach (var rc in eventTiles)
                 gc.DrawPolygon(Pens.Red, GetRhomb(rc));
-            //if (ShowedLayers.HasFlag(TDrawLayers.Collisions))
-            //    foreach (var rc in collisionTiles)
-            //    gc.DrawPolygon(Pens.Blue, GetRhomb(rc));
+            if (ShowedLayers.HasFlag(TDrawLayers.Collisions))
+                foreach (var cell in collisionCells)
+                {
+                    var rc = cell.Bounds;
+                    if (cell.CollisionMask != null)
+                        gc.DrawImage(cell.CollisionMask, rc.Left, rc.Top);
+                    else
+                        gc.DrawPolygon(Pens.Magenta, GetRhomb(rc));
+                }
             if (ShowedLayers.HasFlag(TDrawLayers.Paths) && Game.ActiveNpc != null)
                 foreach (var cell in Game.ActiveNpc.Path)
                 {

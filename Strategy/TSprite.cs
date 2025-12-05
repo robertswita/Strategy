@@ -56,11 +56,15 @@ namespace Strategy
             gc.DrawImage(ActFrame.Image, X, Y);
         }
 
-        int IComparable<TSprite>.CompareTo(TSprite other)
+        protected virtual int CompareTo(TSprite other)
         {
             var y1 = Bounds.Bottom;
             var y2 = other.Bounds.Bottom;
             return y1 == y2 ? Order.CompareTo(other.Order) : y1.CompareTo(y2);
+        }
+        int IComparable<TSprite>.CompareTo(TSprite other)
+        {
+            return CompareTo(other);
         }
 
         public virtual Rectangle Bounds { get; set; }
