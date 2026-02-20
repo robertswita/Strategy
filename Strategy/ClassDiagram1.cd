@@ -1,0 +1,121 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ClassDiagram MajorVersion="1" MinorVersion="1">
+  <Class Name="Strategy.TMap">
+    <Position X="5.75" Y="2.25" Width="2" />
+    <Members>
+      <Property Name="CollisionsEnabled" Hidden="true" />
+      <Field Name="game" Hidden="true" />
+    </Members>
+    <TypeIdentifier>
+      <HashCode>AAAQggAABAAAAIhAAAIAAEAQBDgARAiIAIAAAACAABA=</HashCode>
+      <FileName>TMap.cs</FileName>
+    </TypeIdentifier>
+    <ShowAsAssociation>
+      <Property Name="Game" />
+    </ShowAsAssociation>
+    <ShowAsCollectionAssociation>
+      <Field Name="Walls" />
+      <Field Name="Animations" />
+      <Field Name="Sprites" />
+      <Field Name="Roofs" />
+      <Field Name="Floors" />
+      <Field Name="Cells" />
+      <Field Name="WallTiles" />
+    </ShowAsCollectionAssociation>
+  </Class>
+  <Class Name="Strategy.TWall" Collapsed="true">
+    <Position X="9.75" Y="5.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAgAAAQAAAAAAAAAAAAIAAAAAAAAAAAA=</HashCode>
+      <FileName>TWall.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Strategy.TAnimation" Collapsed="true">
+    <Position X="9.75" Y="2.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAASAAAAAAAAAAAAAAAEAAAA=</HashCode>
+      <FileName>TAnimation.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Strategy.TSprite" Collapsed="true">
+    <Position X="9.75" Y="4.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAEiAQAAABIAAhAAgAAAAEAIAAAAAQAAAQAAAIEAYoE=</HashCode>
+      <FileName>TSprite.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="Strategy.TDiabloMap" Collapsed="true">
+    <Position X="3.75" Y="7.75" Width="1.5" />
+    <NestedTypes>
+      <Enum Name="Strategy.TDiabloMap.CofPalettes" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Diablo\TDiabloMap.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Enum>
+      <Enum Name="Strategy.TDiabloMap.TVersion" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Diablo\TDiabloMap.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Enum>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>JAiAgiAAAEAQEAADQQQGAKAACCAQRAAgBhAQQACMEDA=</HashCode>
+      <FileName>Diablo\TDiabloMap.cs</FileName>
+    </TypeIdentifier>
+    <ShowAsAssociation>
+      <Field Name="Palette" />
+    </ShowAsAssociation>
+  </Class>
+  <Class Name="Strategy.TDispelMap" Collapsed="true">
+    <Position X="6" Y="7.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAQAgAACAAAAAAAAAAGAEAgiAhARBJAAAAAEJCIABA=</HashCode>
+      <FileName>Dispel\TDispelMap.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Strategy.HMM.THmmMap" Collapsed="true">
+    <Position X="8.25" Y="7.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>BAAAAAAAgAAAQAAAAAgAAAEAAACAAAAAAAACAAAAAJA=</HashCode>
+      <FileName>HMM\THmmMap.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Strategy.TTile" Collapsed="true">
+    <Position X="9.75" Y="3.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>ACAAAAAABAAAAAAAAQAAAEAAAAAAABABAAACAAAAYgA=</HashCode>
+      <FileName>TTile.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Strategy.TCell">
+    <Position X="12.25" Y="2.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAEAAAAJAAEAggCAAAQEAAAAAgAAAAIAAAIACQcgA=</HashCode>
+      <FileName>TCell.cs</FileName>
+    </TypeIdentifier>
+    <ShowAsAssociation>
+      <Field Name="Floor" />
+      <Field Name="Roof" />
+      <Field Name="Map" />
+    </ShowAsAssociation>
+    <ShowAsCollectionAssociation>
+      <Field Name="Walls" />
+    </ShowAsCollectionAssociation>
+  </Class>
+  <Class Name="Strategy.TGame" Collapsed="true">
+    <Position X="3.5" Y="2.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>EACAAACEQBACCACBAEAABACQACAgBAAAAAAAACAACYA=</HashCode>
+      <FileName>TGame.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Strategy.TPalette" Collapsed="true">
+    <Position X="3.75" Y="9" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>ABAAgIAAAAAAAAAAAAABAJAABFAAAAAAACAAgAQAAAA=</HashCode>
+      <FileName>TPalette.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Font Name="Segoe UI" Size="9" />
+</ClassDiagram>
